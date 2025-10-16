@@ -122,9 +122,9 @@ public:
 
     bool hasFrequencyCorrection(const int direction, const size_t channel) const;
 
-    //void setFrequencyCorrection(const int direction, const size_t channel, const double value);
+    void setFrequencyCorrection(const int direction, const size_t channel, const double value);
 
-    //double getFrequencyCorrection(const int direction, const size_t channel) const;
+    double getFrequencyCorrection(const int direction, const size_t channel) const;
 
     /*******************************************************************
      * Gain API
@@ -149,13 +149,26 @@ public:
      * Frequency API
      ******************************************************************/
     
-    //void setFrequency(const int direction,const size_t channel,const std::string &name,const double frequency,const SoapySDR::Kwargs &args = SoapySDR::Kwargs());
+    void setFrequency(const int direction,
+                      const size_t channel,
+                      const double frequency,
+                      const SoapySDR::Kwargs &args = SoapySDR::Kwargs());
+
+    void setFrequency(const int direction,
+                      const size_t channel,
+                      const std::string &name,
+                      const double frequency,
+                      const SoapySDR::Kwargs &args = SoapySDR::Kwargs());
     
-    //double getFrequency(const int direction, const size_t channel, const std::string &name) const;
+    double getFrequency(const int direction, const size_t channel) const;
 
-    //std::vector<std::string> listFrequencies(const int direction, const size_t channel) const;
+    double getFrequency(const int direction, const size_t channel, const std::string &name) const;
 
-    //SoapySDR::RangeList getFrequencyRange(const int direction, const size_t channel, const std::string &name) const;
+    std::vector<std::string> listFrequencies(const int direction, const size_t channel) const;
+
+    SoapySDR::RangeList getFrequencyRange(const int direction, const size_t channel) const;
+
+    SoapySDR::RangeList getFrequencyRange(const int direction, const size_t channel, const std::string &name) const;
 
     SoapySDR::ArgInfoList getFrequencyArgsInfo(const int direction, const size_t channel) const;
     
@@ -183,7 +196,12 @@ public:
 
     void setHardwareTime(const long long timeNs, const std::string &what = "");
 
-
+    /*******************************************************************
+     * Device Specific Settings
+     ******************************************************************/
+    SoapySDR::ArgInfoList getSettingInfo(void) const;
+    void writeSetting(const std::string &key, const std::string &value);
+    std::string readSetting(const std::string &key) const;
 
 
 
@@ -197,12 +215,23 @@ private:
 
     //cached settings
     uint8_t rfGain;
+    uint8_t vgaGain;
+    uint8_t vgaAtt;
+    bool randCtrl;
+    bool ditherCtrl;
+    bool pgaCtrl;
+
+    double freqHz;
+    double ppm;
+
     rx888RXFormat rxFormat;
     uint32_t sampleRate;
     size_t numBuffers, bufferLength, asyncBuffs;
     std::atomic<long long> ticks;
 
 public:
+
+    mutable std::mutex _general_state_mutex;
 
     struct Buffer
     {

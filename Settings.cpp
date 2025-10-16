@@ -7,6 +7,12 @@
 SoapyRX888::SoapyRX888(const SoapySDR::Kwargs &args):
     deviceId(-1),
     dev(nullptr),
+    rfGain(0),
+    vgaGain(29),
+    vgaAtt(10),
+    randCtrl(true),
+    ditherCtrl(true),
+    pgaCtrl(true),
     rxFormat(RX888_RX_FORMAT_INT16),
     sampleRate(64000000),
     numBuffers(DEFAULT_NUM_BUFFERS)
@@ -26,7 +32,11 @@ SoapyRX888::SoapyRX888(const SoapySDR::Kwargs &args):
         throw std::runtime_error("Unable to open RX888 device");
     }
 
-    
+    // rx888_set_dither(dev, ditherCtrl);
+    // rx888_set_rand(dev, randCtrl);
+    // rx888_set_pga(dev, pgaCtrl);
+    rx888_set_vga_gain(dev, vgaGain);
+    rx888_set_vga_attenuation(dev, vgaAtt);
 }
 
 SoapyRX888::~SoapyRX888(void)
@@ -124,7 +134,19 @@ bool SoapyRX888::hasFrequencyCorrection(const int direction, const size_t channe
 {
     (void)direction;
     (void)channel;
-    return false;
+    return true;
+}
+
+void SoapyRX888::setFrequencyCorrection(const int direction, const size_t channel, const double value) {
+    (void)direction;
+    (void)channel;
+    setFrequency(direction, channel, "CORR", value);
+}
+
+double SoapyRX888::getFrequencyCorrection(const int direction, const size_t channel) const {
+    (void)direction;
+    (void)channel;
+    return getFrequency(direction, channel, "CORR");
 }
 
 /*******************************************************************
@@ -136,7 +158,13 @@ std::vector<std::string> SoapyRX888::listGains(const int direction, const size_t
     (void)direction;
     (void)channel;
     std::vector<std::string> gains;
+    // DeviceName='RX888'
     gains.push_back("RF");
+
+    // DeviceNames: RX888, RX888MK2
+    gains.push_back("VGAGain");
+    gains.push_back("VGAAtt");
+
     return gains;
 }
 
@@ -153,8 +181,18 @@ void SoapyRX888::setGain(const int direction, const size_t channel, const std::s
     (void)channel;
     if (name == "RF")
     {
-        rx888_set_hf_attenuation(dev, value);
+        rfGain = value;
+        rx888_set_hf_attenuation(dev, rfGain);
+    } else if (name == "VGAGain")
+    {
+        vgaGain = (int) value;
+        rx888_set_vga_gain(dev, vgaGain);
+    } else if (name == "VGAAtt")
+    {
+        vgaAtt = (int) value;
+        rx888_set_vga_attenuation(dev, vgaAtt);
     }
+
 }
 
 SoapySDR::Range SoapyRX888::getGainRange(const int direction, const size_t channel, const std::string &name) const
@@ -164,11 +202,109 @@ SoapySDR::Range SoapyRX888::getGainRange(const int direction, const size_t chann
     if (name == "RF")
     {
         return SoapySDR::Range(-20.0, 0, 10.0);
-    } else {
-        return SoapySDR::Range(0, 0);
+    } else if (name == "VGAGain")
+    {
+        return SoapySDR::Range(0, 255, 1);
+    } else if (name == "VGAAtt")
+    {
+        return SoapySDR::Range(0, 63, 1);
     }
+    
     return SoapySDR::Range(0, 0);
 } 
+
+void SoapyRX888::setFrequency(const int direction,
+                                 const size_t channel,
+                                 const double frequency,
+                                 const SoapySDR::Kwargs &args)
+{
+    // default to RF
+    setFrequency(direction, channel, "RF", frequency, args);
+}
+
+void SoapyRX888::setFrequency(const int direction,
+                                 const size_t channel,
+                                 const std::string &name,
+                                 const double frequency,
+                                 const SoapySDR::Kwargs &args)
+{
+   std::lock_guard <std::mutex> lock(_general_state_mutex);
+
+
+   if (direction == SOAPY_SDR_RX)
+   {
+      if (name == "RF")
+      {
+         SoapySDR::RangeList frequencyRange = getFrequencyRange(direction, channel, name);
+         if (!(frequency >= frequencyRange.front().minimum() && frequency <= frequencyRange.back().maximum()))
+         {
+            SoapySDR_logf(SOAPY_SDR_WARNING, "RF center frequency out of range - frequency=%lg", frequency);
+            return;
+         }
+         if (freqHz != (uint32_t)frequency)
+         {
+            freqHz = (uint32_t)frequency;
+            // TODO: Enable setting of HF Frequency
+         }
+      }
+      // can't set ppm for RSPduo slaves
+      else if ((name == "CORR") && (ppm != frequency))
+      {
+         ppm = frequency;
+         // TODO: Enable setting of PPM 
+      }
+   }
+}
+
+double SoapyRX888::getFrequency(const int direction, const size_t channel) const
+{
+    // default to RF
+    return getFrequency(direction, channel, "RF");
+}
+
+double SoapyRX888::getFrequency(const int direction, const size_t channel, const std::string &name) const
+{
+    std::lock_guard <std::mutex> lock(_general_state_mutex);
+
+    if (name == "RF")
+    {
+        return freqHz;
+    }
+    else if (name == "CORR")
+    {
+        return ppm;
+    }
+
+    return 0;
+}
+
+std::vector<std::string> SoapyRX888::listFrequencies(const int direction, const size_t channel) const
+{
+    std::vector<std::string> names;
+    names.push_back("RF");
+    names.push_back("CORR");
+    return names;
+}
+
+SoapySDR::RangeList SoapyRX888::getFrequencyRange(const int direction, const size_t channel) const
+{
+    return getFrequencyRange(direction, channel, "RF");
+}
+
+SoapySDR::RangeList SoapyRX888::getFrequencyRange(const int direction, const size_t channel, const std::string &name) const
+{
+    SoapySDR::RangeList results;
+    if (name == "RF")
+    {
+        // TODO: Confirm this the right way ? or should we be using BW and setting SampleRate as BW * 2 ?
+        //results.push_back(SoapySDR::Range(1000, rx888_get_sample_rate(dev)/2.0));
+        // results.push_back(SoapySDR::Range(1000, sampleRate));
+        // results.push_back(SoapySDR::Range(1000, sampleRate/2.0));
+
+        results.push_back(SoapySDR::Range(0, sampleRate));
+    }
+    return results;
+}
 
 SoapySDR::ArgInfoList SoapyRX888::getFrequencyArgsInfo(const int direction, const size_t channel) const
 {
@@ -267,4 +403,87 @@ void SoapyRX888::setHardwareTime(const long long timeNs, const std::string &what
 {
     (void)what;
     ticks = SoapySDR::timeNsToTicks(timeNs, sampleRate);
+}
+
+
+/*******************************************************************
+ * Device Specific Settings
+ ******************************************************************/
+
+SoapySDR::ArgInfoList SoapyRX888::getSettingInfo(void) const
+{
+    SoapySDR::ArgInfoList setArgs;
+
+    SoapySDR::ArgInfo RandArg;
+    RandArg.key = "rand_ctlr";
+    RandArg.value = "true";
+    RandArg.name = "Enable randomization";
+    RandArg.description = "Enable randomization control";
+    RandArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(RandArg);
+
+    SoapySDR::ArgInfo DitherArg;
+    DitherArg.key = "rand_ctlr";
+    DitherArg.value = "true";
+    DitherArg.name = "Enable dithering";
+    DitherArg.description = "Enable dithering control";
+    DitherArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(DitherArg);
+
+    SoapySDR::ArgInfo PGAArg;
+    PGAArg.key = "pga_ctlr";
+    PGAArg.value = "true";
+    PGAArg.name = "PGA Amplifier";
+    PGAArg.description = "PGA amplifier control";
+    PGAArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(PGAArg);
+
+    return setArgs;
+    
+}
+
+void SoapyRX888::writeSetting(const std::string &key, const std::string &value)
+{
+    std::lock_guard <std::mutex> lock(_general_state_mutex);
+
+    SoapySDR_logf(SOAPY_SDR_INFO, "  -- writeSetting: %s=%s", key, value);
+
+    if (key == "rf") {
+        rx888_set_hf_attenuation(dev, stod(value));
+    } else if (key == "vga-gain") {
+        rx888_set_vga_gain(dev, stoi(value));
+    } else if (key == "vga-att") {
+        rx888_set_vga_attenuation(dev, stoi(value));
+    } else if (key == "rand") {
+        rx888_set_rand(dev, value == "true");
+    } else if (key == "dither") {
+        rx888_set_dither(dev, value == "true");
+    } else if (key == "pga") {
+        rx888_set_pga(dev, value == "true");
+    }
+
+}
+
+std::string SoapyRX888::readSetting(const std::string &key) const
+{
+    std::lock_guard <std::mutex> lock(_general_state_mutex);
+    std::string val = "";
+    
+    if (key == "rf") {
+        val = std::to_string(rfGain);
+    } else if (key == "vga-gain") {
+        val = std::to_string(vgaGain);
+    } else if (key == "vga-att") {
+        val = std::to_string(vgaAtt);
+    } else if (key == "rand") {
+        val = (randCtrl) ? "true" : "false";
+    } else if (key == "dither") {
+        val = (ditherCtrl) ? "true" : "false";
+    } else if (key == "pga") {
+        val = (pgaCtrl) ? "true" : "false";
+    }
+
+    SoapySDR_logf(SOAPY_SDR_INFO, "  -- readSetting: %s=%s", key, val);
+
+    return val;
 }
