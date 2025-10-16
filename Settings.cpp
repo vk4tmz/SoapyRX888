@@ -9,8 +9,8 @@ SoapyRX888::SoapyRX888(const SoapySDR::Kwargs &args):
     dev(nullptr),
     rfGain(0),
     vgaGain(29),
-    vgaAtt(10),
-    randCtrl(true),
+    vgaAtt(0),
+    randCtrl(false),
     ditherCtrl(true),
     pgaCtrl(true),
     rxFormat(RX888_RX_FORMAT_INT16),
@@ -32,9 +32,12 @@ SoapyRX888::SoapyRX888(const SoapySDR::Kwargs &args):
         throw std::runtime_error("Unable to open RX888 device");
     }
 
-    // rx888_set_dither(dev, ditherCtrl);
-    // rx888_set_rand(dev, randCtrl);
-    // rx888_set_pga(dev, pgaCtrl);
+    // TODO: Testing to see if we need a little time before starting to send commands to device.
+    // std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+
+    rx888_set_dither(dev, ditherCtrl);
+    rx888_set_rand(dev, randCtrl);
+    rx888_set_pga(dev, pgaCtrl);
     rx888_set_vga_gain(dev, vgaGain);
     rx888_set_vga_attenuation(dev, vgaAtt);
 }
@@ -423,7 +426,7 @@ SoapySDR::ArgInfoList SoapyRX888::getSettingInfo(void) const
     setArgs.push_back(RandArg);
 
     SoapySDR::ArgInfo DitherArg;
-    DitherArg.key = "rand_ctlr";
+    DitherArg.key = "dither_ctlr";
     DitherArg.value = "true";
     DitherArg.name = "Enable dithering";
     DitherArg.description = "Enable dithering control";
@@ -446,7 +449,7 @@ void SoapyRX888::writeSetting(const std::string &key, const std::string &value)
 {
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    SoapySDR_logf(SOAPY_SDR_INFO, "  -- writeSetting: %s=%s", key, value);
+    SoapySDR_logf(SOAPY_SDR_INFO, "  -- writeSetting: %s=%s", key.c_str(), value.c_str());
 
     if (key == "rf") {
         rx888_set_hf_attenuation(dev, stod(value));
@@ -475,15 +478,15 @@ std::string SoapyRX888::readSetting(const std::string &key) const
         val = std::to_string(vgaGain);
     } else if (key == "vga-att") {
         val = std::to_string(vgaAtt);
-    } else if (key == "rand") {
+    } else if (key == "rand_ctlr") {
         val = (randCtrl) ? "true" : "false";
-    } else if (key == "dither") {
+    } else if (key == "dither_ctlr") {
         val = (ditherCtrl) ? "true" : "false";
-    } else if (key == "pga") {
+    } else if (key == "pga_ctlr") {
         val = (pgaCtrl) ? "true" : "false";
     }
 
-    SoapySDR_logf(SOAPY_SDR_INFO, "  -- readSetting: %s=%s", key, val);
+    SoapySDR_logf(SOAPY_SDR_INFO, "  -- readSetting: %s=%s", key.c_str(), val.c_str());
 
     return val;
 }
